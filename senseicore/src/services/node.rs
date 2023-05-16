@@ -164,6 +164,7 @@ impl From<&OpenChannelRequest> for UserConfig {
             channel_handshake_config: ChannelHandshakeConfig {
                 announced_channel: request.public,
                 negotiate_scid_privacy: request.scid_alias.unwrap_or(false),
+                max_inbound_htlc_value_in_flight_percent_of_channel: 50, // adding this config value so that it can be configured from sensei instead of just taking the default
                 ..Default::default()
             },
             ..Default::default()

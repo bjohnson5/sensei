@@ -69,7 +69,7 @@ use lightning::routing::gossip::{
 };
 use lightning::routing::router::{RouteHint, RouteHintHop};
 use lightning::routing::scoring::ProbabilisticScorer;
-use lightning::util::config::UserConfig;
+use lightning::util::config::{UserConfig, ChannelConfig, ChannelHandshakeLimits, ChannelHandshakeConfig};
 use lightning::util::ser::{Readable, ReadableArgs, Writeable};
 use lightning_background_processor::BackgroundProcessor;
 use lightning_invoice::utils::DefaultRouter;
@@ -693,7 +693,16 @@ impl LightningNode {
         let mut channelmonitors = persister.read_channelmonitors(keys_manager.clone())?;
 
         // TODO: likely expose a lot of this config to our LightningNodeConfig
-        let mut user_config = UserConfig::default();
+        //let mut user_config = UserConfig::default();
+        let mut user_config: UserConfig = UserConfig {
+            channel_handshake_limits: ChannelHandshakeLimits::default(),
+            channel_config: ChannelConfig::default(),
+            channel_handshake_config: ChannelHandshakeConfig {
+                max_inbound_htlc_value_in_flight_percent_of_channel: 100, // adding this config value so that it can be configured from sensei instead of just taking the default
+                ..Default::default()
+            },
+            ..Default::default()
+        };
 
         user_config
             .channel_handshake_limits

@@ -134,6 +134,7 @@ impl BitcoindClient {
         handle: tokio::runtime::Handle,
     ) {
         handle.spawn(async move {
+            // TODO: this thread is never stopped when the sensei admin is stopped, handling the error and stopping for now but this should be cleaned up
             loop {
                 let background_estimate = {
                     let background_conf_target = serde_json::json!(144);
@@ -143,11 +144,19 @@ impl BitcoindClient {
                             "estimatesmartfee",
                             &[background_conf_target, background_estimate_mode],
                         )
-                        .await
-                        .unwrap();
-                    match resp.feerate_sat_per_kw {
-                        Some(feerate) => std::cmp::max(feerate, MIN_FEERATE),
-                        None => MIN_FEERATE,
+                        .await;
+                    match resp {
+                        Ok(r) => {
+                            match r.feerate_sat_per_kw {
+                                Some(feerate) => std::cmp::max(feerate, MIN_FEERATE),
+                                None => MIN_FEERATE,
+                            }
+                        },
+                        Err(_) => {
+                            // Probably because the bitcoind instance has been stopped
+                            println!("bitcoind no longer running, quitting the fee estimate thread");
+                            break;
+                        }
                     }
                 };
 
@@ -159,11 +168,19 @@ impl BitcoindClient {
                             "estimatesmartfee",
                             &[normal_conf_target, normal_estimate_mode],
                         )
-                        .await
-                        .unwrap();
-                    match resp.feerate_sat_per_kw {
-                        Some(feerate) => std::cmp::max(feerate, MIN_FEERATE),
-                        None => 2000,
+                        .await;
+                    match resp {
+                        Ok(r) => {
+                            match r.feerate_sat_per_kw {
+                                Some(feerate) => std::cmp::max(feerate, MIN_FEERATE),
+                                None => 2000,
+                            }
+                        },
+                        Err(_) => {
+                            // Probably because the bitcoind instance has been stopped
+                            println!("bitcoind no longer running, quitting the fee estimate thread");
+                            break;
+                        }
                     }
                 };
 
@@ -175,12 +192,19 @@ impl BitcoindClient {
                             "estimatesmartfee",
                             &[high_prio_conf_target, high_prio_estimate_mode],
                         )
-                        .await
-                        .unwrap();
-
-                    match resp.feerate_sat_per_kw {
-                        Some(feerate) => std::cmp::max(feerate, MIN_FEERATE),
-                        None => 5000,
+                        .await;
+                    match resp {
+                        Ok(r) => {
+                            match r.feerate_sat_per_kw {
+                                Some(feerate) => std::cmp::max(feerate, MIN_FEERATE),
+                                None => 5000,
+                            }
+                        },
+                        Err(_) => {
+                            // Probably because the bitcoind instance has been stopped
+                            println!("bitcoind no longer running, quitting the fee estimate thread");
+                            break;
+                        }
                     }
                 };
 
