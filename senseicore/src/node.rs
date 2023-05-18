@@ -76,6 +76,8 @@ use lightning_invoice::utils::DefaultRouter;
 use lightning_invoice::{payment, utils, Currency, Invoice, InvoiceDescription};
 use lightning_net_tokio::SocketDescriptor;
 use lightning_rapid_gossip_sync::RapidGossipSync;
+use lightning::ln::channelmanager::PaymentId;
+use lightning::util::events::Event;
 use macaroon::Macaroon;
 use rand::{thread_rng, RngCore};
 use serde::{ser::SerializeSeq, Deserialize, Serialize, Serializer};
@@ -431,6 +433,7 @@ pub struct LightningNode {
     pub persister: Arc<SenseiPersister>,
     pub event_sender: broadcast::Sender<SenseiEvent>,
     pub broadcaster: Arc<SenseiBroadcaster>,
+    pub sim_sender: broadcast::Sender<Event>
 }
 
 impl LightningNode {
@@ -842,6 +845,8 @@ impl LightningNode {
             Arc::new(IgnoringMessageHandler {}),
         ));
 
+        let (sim_sender, _): (broadcast::Sender<Event>, broadcast::Receiver<Event>) = broadcast::channel(1024);
+
         let event_handler = Arc::new(LightningNodeEventHandler {
             node_id: id.clone(),
             config: config.clone(),
@@ -854,6 +859,7 @@ impl LightningNode {
             event_sender: event_sender.clone(),
             broadcaster: broadcaster.clone(),
             secp_ctx: Secp256k1::new(),
+            sim_sender: sim_sender.clone()
         });
 
         let invoice_payer = Arc::new(InvoicePayer::new(
@@ -978,6 +984,7 @@ impl LightningNode {
             persister,
             event_sender,
             broadcaster,
+            sim_sender: sim_sender
         };
 
         Ok((lightning_node, handles, background_processor))
@@ -1066,11 +1073,13 @@ impl LightningNode {
         Ok(())
     }
 
-    pub async fn send_payment(&self, invoice: &Invoice) -> Result<(), Error> {
+    pub async fn send_payment(&self, invoice: &Invoice) -> Result<String, Error> {
+        let mut payment_id: Option<PaymentId> = None;
         let status = match self.invoice_payer.pay_invoice(invoice) {
-            Ok(_payment_id) => {
+            Ok(id) => {
                 let payee_pubkey = invoice.recover_payee_pub_key();
                 let amt_msat = invoice.amount_milli_satoshis().unwrap();
+                payment_id = Some(id);
                 println!(
                     "EVENT: initiated sending {} msats to {}",
                     amt_msat, payee_pubkey
@@ -1111,7 +1120,7 @@ impl LightningNode {
 
         payment.insert(self.database.get_connection()).await?;
 
-        Ok(())
+        Ok(hex_utils::hex_str(&payment_id.unwrap().0))
     }
 
     pub async fn get_phantom_invoice(
@@ -1520,8 +1529,8 @@ impl LightningNode {
                 .map_err(|e| NodeRequestError::Sensei(e.to_string())),
             NodeRequest::SendPayment { invoice } => {
                 let invoice = self.get_invoice_from_str(&invoice)?;
-                self.send_payment(&invoice).await?;
-                Ok(NodeResponse::SendPayment {})
+                let payment_id = self.send_payment(&invoice).await?;
+                Ok(NodeResponse::SendPayment {id: payment_id})
             }
             NodeRequest::DecodeInvoice { invoice } => {
                 let invoice = self.get_invoice_from_str(&invoice)?;

@@ -307,7 +307,7 @@ impl TryFrom<NodeResponse> for PayInvoiceResponse {
 
     fn try_from(res: NodeResponse) -> Result<Self, Self::Error> {
         match res {
-            NodeResponse::SendPayment {} => Ok(Self {}),
+            NodeResponse::SendPayment {..} => Ok(Self {}),
             _ => Err("impossible".to_string()),
         }
     }

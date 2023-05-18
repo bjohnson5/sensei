@@ -292,7 +292,9 @@ pub enum NodeResponse {
         requests: Vec<OpenChannelRequest>,
         results: Vec<OpenChannelResult>,
     },
-    SendPayment {},
+    SendPayment {
+        id: String
+    },
     DecodeInvoice {
         invoice: LocalInvoice,
     },

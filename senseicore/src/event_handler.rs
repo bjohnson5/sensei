@@ -46,6 +46,7 @@ pub struct LightningNodeEventHandler {
     pub event_sender: broadcast::Sender<SenseiEvent>,
     pub broadcaster: Arc<SenseiBroadcaster>,
     pub secp_ctx: Secp256k1<secp256k1::All>,
+    pub sim_sender: broadcast::Sender<Event>
 }
 
 impl EventHandler for LightningNodeEventHandler {
@@ -236,10 +237,10 @@ impl EventHandler for LightningNodeEventHandler {
                 };
             }
             Event::PaymentSent {
+                payment_id,
                 payment_preimage,
                 payment_hash,
-                fee_paid_msat,
-                ..
+                fee_paid_msat
             } => {
                 let hex_payment_hash = hex_utils::hex_str(&payment_hash.0);
 
@@ -259,7 +260,7 @@ impl EventHandler for LightningNodeEventHandler {
 
                     println!(
                         "\nEVENT: successfully sent payment of {:?} millisatoshis{} from \
-                                    payment hash {:?} with preimage {:?}",
+                                    payment hash {:?} with preimage {:?} and id {}",
                         amt_msat,
                         if let Some(fee) = fee_paid_msat {
                             format!(" (fee {} msat)", fee)
@@ -267,21 +268,29 @@ impl EventHandler for LightningNodeEventHandler {
                             "".to_string()
                         },
                         hex_utils::hex_str(&payment_hash.0),
-                        hex_utils::hex_str(&payment_preimage.0)
+                        hex_utils::hex_str(&payment_preimage.0),
+                        hex_utils::hex_str(&payment_id.unwrap().0)
                     );
+
+                    self.sim_sender.send(event.clone()).expect("could not send the event");
                 }
             }
-            Event::PaymentPathSuccessful { path: _, .. } => {}
+            Event::PaymentPathSuccessful { path: _, .. } => {
+                self.sim_sender.send(event.clone()).expect("could not send the event");
+            }
             Event::PaymentPathFailed {
                 path: _,
                 short_channel_id: _,
                 ..
             } => {}
-            Event::PaymentFailed { payment_hash, .. } => {
+            Event::PaymentFailed { payment_hash, payment_id, .. } => {
                 print!(
-                    "\nEVENT: Failed to send payment to payment hash {:?}: exhausted payment retry attempts",
-				    hex_utils::hex_str(&payment_hash.0)
+                    "\nEVENT: Failed to send payment to payment hash {:?}: exhausted payment retry attempts, id: {}",
+				    hex_utils::hex_str(&payment_hash.0),
+                    hex_utils::hex_str(&payment_id.0)
                 );
+
+                self.sim_sender.send(event.clone()).expect("could not send the event");
 
                 let hex_payment_hash = hex_utils::hex_str(&payment_hash.0);
 
