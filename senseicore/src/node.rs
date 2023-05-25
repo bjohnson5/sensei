@@ -701,7 +701,8 @@ impl LightningNode {
             channel_handshake_limits: ChannelHandshakeLimits::default(),
             channel_config: ChannelConfig::default(),
             channel_handshake_config: ChannelHandshakeConfig {
-                max_inbound_htlc_value_in_flight_percent_of_channel: 100, // adding this config value so that it can be configured from sensei instead of just taking the default
+                // TODO: make this configurable from the sim library
+                max_inbound_htlc_value_in_flight_percent_of_channel: 10, // adding this config value so that it can be configured from sensei instead of just taking the default
                 ..Default::default()
             },
             ..Default::default()
