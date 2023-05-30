@@ -178,6 +178,7 @@ pub struct OpenChannelResult {
     pub error: bool,
     pub error_message: Option<String>,
     pub channel_id: Option<String>,
+    pub funding_txid: Option<String>
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]

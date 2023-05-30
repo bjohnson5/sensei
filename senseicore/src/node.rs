@@ -994,7 +994,7 @@ impl LightningNode {
     pub async fn open_channels(
         &self,
         requests: Vec<OpenChannelRequest>,
-    ) -> Result<Vec<(OpenChannelRequest, Result<[u8; 32], Error>)>, Error> {
+    ) -> Result<Vec<(OpenChannelRequest, Result<[u8; 32], Error>, Option<String>)>, Error> {
         let mut opener = ChannelOpener::new(
             self.id.clone(),
             self.channel_manager.clone(),
@@ -1010,11 +1010,11 @@ impl LightningNode {
 
     // `custom_id` will be user_channel_id in FundingGenerated event
     // allows use to tie the create_channel call with the event
-    pub async fn open_channel(&self, request: OpenChannelRequest) -> Result<[u8; 32], Error> {
+    pub async fn open_channel(&self, request: OpenChannelRequest) -> (Result<[u8; 32], Error>, Option<String>) {
         let requests = vec![request];
-        let mut responses = self.open_channels(requests).await?;
-        let (_request, result) = responses.pop().unwrap();
-        result
+        let responses = self.open_channels(requests).await;
+        let (_request, result, funding_txid) = responses.unwrap().pop().unwrap();
+        (result, funding_txid)
     }
 
     async fn keysend<K: KeysInterface>(
@@ -1513,16 +1513,18 @@ impl LightningNode {
                     requests,
                     results: responses
                         .into_iter()
-                        .map(|(_request, result)| match result {
+                        .map(|(_request, result, funding_tx)| match result {
                             Ok(channel_id) => OpenChannelResult {
                                 error: false,
                                 error_message: None,
                                 channel_id: Some(hex_utils::hex_str(&channel_id)),
+                                funding_txid: funding_tx
                             },
                             Err(e) => OpenChannelResult {
                                 error: true,
                                 error_message: Some(format!("{:?}", e)),
                                 channel_id: None,
+                                funding_txid: funding_tx
                             },
                         })
                         .collect::<Vec<_>>(),

@@ -442,6 +442,8 @@ impl EventHandler for LightningNodeEventHandler {
                         reason,
                     })
                     .unwrap();
+                
+                self.sim_sender.send(event.clone()).expect("could not send the event");
             }
             Event::DiscardFunding { .. } => {
                 // A "real" node should probably "lock" the UTXOs spent in funding transactions until

@@ -8,6 +8,7 @@ use lightning_block_sync::http::HttpEndpoint;
 use lightning_block_sync::rpc::RpcClient;
 use lightning_block_sync::{AsyncBlockSourceResult, BlockHeaderData, BlockSource};
 use serde_json;
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -33,6 +34,81 @@ impl TryInto<FeeResponse> for JsonResponse {
                 // to convert virtual-bytes into weight units.
                 (feerate_btc_per_kvbyte * 100_000_000.0 / 4.0).round() as u32
             }),
+        })
+    }
+}
+
+pub struct BlockResponse {
+    pub tx: Vec<String>,
+    pub previousblockhash: String,
+    pub height: i64
+}
+
+impl TryInto<BlockResponse> for JsonResponse {
+    type Error = std::io::Error;
+    fn try_into(self) -> std::io::Result<BlockResponse> {
+        let mut txs: Vec<String> = Vec::new();
+        for i in self.0["tx"].as_array().unwrap().clone() {
+            let tx = String::from(i.as_str().unwrap());
+            txs.push(tx);
+        }
+
+        Ok(BlockResponse {
+            tx: txs,
+            previousblockhash: String::from(self.0["previousblockhash"].as_str().unwrap()),
+            height: self.0["height"].as_i64().unwrap()
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RawTransaction {
+    pub txid: String,
+    pub vin: Vec<Input>,
+    pub vout: Vec<Output>,
+    pub blockhash: String
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Input {
+    txid: String,
+    vout: i64
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Output {
+    value: f64,
+    n: i64
+}
+
+impl TryInto<RawTransaction> for JsonResponse {
+    type Error = std::io::Error;
+    fn try_into(self) -> std::io::Result<RawTransaction> {
+        let mut inputs: Vec<Input> = Vec::new();
+        for i in self.0["vin"].as_array().unwrap().clone() {
+            if i["txid"].as_str().is_some() {
+                let input = Input {
+                    txid: String::from(i["txid"].as_str().unwrap()),
+                    vout: i["vout"].as_i64().unwrap(),
+                };
+                inputs.push(input);
+            }
+        }
+
+        let mut outputs: Vec<Output> = Vec::new();
+        for i in self.0["vout"].as_array().unwrap().clone() {
+            let output = Output {
+                value: i["value"].as_f64().unwrap(),
+                n: i["n"].as_i64().unwrap(),
+            };
+            outputs.push(output);
+        }
+
+        Ok(RawTransaction {
+            txid: String::from(self.0["txid"].as_str().unwrap()),
+            vin: inputs,
+            vout: outputs,
+            blockhash: String::from(self.0["blockhash"].as_str().unwrap())
         })
     }
 }
@@ -126,6 +202,82 @@ impl BitcoindClient {
             handle,
         );
         Ok(client)
+    }
+
+    // these functions NEED txindex=1 in the bitcoin.conf file for this rpc server
+    pub async fn get_tx_fees(&self, txid: String) -> f64 {
+        let mut input_value = 0.0;
+        let transaction = self.get_raw_transaction(txid).await;
+        for input in transaction.vin {
+            input_value = input_value + self.get_value_of_output(input.txid, input.vout).await;
+        }
+
+        let mut output_value: f64 = 0.0;
+        for output in transaction.vout {
+            output_value = output_value + output.value;
+        }
+
+        input_value - output_value
+    }
+
+    pub async fn is_output_value(&self, txid: String, value: f64) -> bool {
+        let transaction = self.get_raw_transaction(txid).await;
+        for output in transaction.vout {
+            if value == output.value {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    pub async fn find_input(&self, txid: String) -> Option<String> {
+        let original_tx = self.get_raw_transaction(txid.clone()).await;
+        let min_height = self.get_block_height(original_tx.blockhash).await;
+        let (latest_blockhash, height) = self.bitcoind_rpc_client.get_best_block().await.unwrap();
+        let mut blockhash = latest_blockhash.to_string();
+
+        let mut found_tx: Option<String> = None;
+        let mut current_height = height.unwrap();
+        while found_tx.is_none() && current_height as i64 >= min_height {
+            let response = self.bitcoind_rpc_client.call_method::<BlockResponse>("getblock",&[serde_json::json!(blockhash), serde_json::json!(1)]).await.unwrap();
+            for tx in &response.tx {
+                let transaction = self.get_raw_transaction(tx.clone()).await;
+                for input in transaction.vin {
+                    if input.txid == txid {
+                        found_tx = Some(tx.clone());
+                        break;
+                    }
+                }
+                if found_tx.is_some() {
+                    break;
+                }
+            }
+            blockhash = response.previousblockhash;
+            current_height = current_height - 1;
+        }
+
+        found_tx
+    }
+
+    async fn get_block_height(&self, blockhash: String) -> i64 {
+        let response = self.bitcoind_rpc_client.call_method::<BlockResponse>("getblock",&[serde_json::json!(blockhash), serde_json::json!(1)]).await.unwrap();
+        response.height
+    }
+
+    async fn get_raw_transaction(&self, txid: String) -> RawTransaction {
+        self.bitcoind_rpc_client.call_method::<RawTransaction>("getrawtransaction",&[serde_json::json!(txid), serde_json::json!(true)]).await.unwrap()
+    }
+
+    async fn get_value_of_output(&self, txid: String, index: i64) -> f64 {
+        let transaction = self.get_raw_transaction(txid).await;
+        for output in transaction.vout {
+            if output.n == index {
+                return output.value;
+            }
+        }
+
+        0.0
     }
 
     fn poll_for_fee_estimates(

@@ -124,7 +124,7 @@ impl ChannelOpener {
     pub async fn open_batch(
         &mut self,
         requests: Vec<OpenChannelRequest>,
-    ) -> Result<Vec<(OpenChannelRequest, Result<[u8; 32], Error>)>, Error> {
+    ) -> Result<Vec<(OpenChannelRequest, Result<[u8; 32], Error>, Option<String>)>, Error> {
         let requests = self.ensure_custom_ids(requests);
         let mut requests_with_results = vec![];
         let mut filters = vec![];
@@ -183,7 +183,7 @@ impl ChannelOpener {
         if ok_results == 0 {
             return Ok(requests_with_results
                 .into_iter()
-                .map(|(req, res, _)| (req, res))
+                .map(|(req, res, _)| (req, res, None))
                 .collect::<Vec<_>>());
         }
 
@@ -258,12 +258,12 @@ impl ChannelOpener {
                                 channel.user_channel_id == request.custom_id.unwrap()
                             });
                             let channel = channel.expect("to find channel we opened");
-                            (request, Ok(channel.channel_id))
+                            (request, Ok(channel.channel_id), Some(funding_tx.txid().to_string()))
                         }
-                        Err(e) => (request, Err(Error::LdkApi(e))),
+                        Err(e) => (request, Err(Error::LdkApi(e)), None),
                     }
                 } else {
-                    (request, result)
+                    (request, result, None)
                 }
             })
             .collect();
